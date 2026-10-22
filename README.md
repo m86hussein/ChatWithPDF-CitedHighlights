@@ -2,6 +2,9 @@
 
 Upload PDFs (Arabic/English, scanned or digital), chat with them, extract every statistic, and verify each answer against highlighted sources.
 
+## Architecture
+![Architecture: web app and API, background ingestion, grounded chat with yellow citations](docs/architecture.svg)
+
 ## Features
 - Drag & drop multi-file upload, 100+ page documents, OCR for scanned pages (Tesseract `ara+eng`)
 - Tables, figures and charts (Claude vision reads charts into text + statistics)
