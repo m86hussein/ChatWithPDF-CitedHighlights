@@ -3,7 +3,56 @@
 Upload PDFs (Arabic/English, scanned or digital), chat with them, extract every statistic, and verify each answer against highlighted sources.
 
 ## Architecture
-![Architecture: web app and API, background ingestion, grounded chat with yellow citations](docs/architecture.svg)
+[![Architecture: web app and API, background ingestion, grounded chat with yellow citations](docs/architecture.svg)](https://m86hussein.github.io/ChatWithPDF-CitedHighlights/)
+
+**[Open the interactive diagram](https://m86hussein.github.io/ChatWithPDF-CitedHighlights/)**: click any component for what it does, its source file and docs.
+
+### Ingestion (per upload, background)
+```mermaid
+flowchart LR
+  U(["User<br/>drag & drop PDFs"]) -- "POST /api/documents" --> API["FastAPI<br/>magic-byte + size check"]
+  API -- "original PDF" --> S3[("S3 / local disk")]
+  API -- "queue" --> W["Ingestion worker<br/>thread pool"]
+  W --> P["PyMuPDF<br/>words + boxes · tables"]
+  W --> O["Tesseract OCR<br/>scanned pages · ara+eng"]
+  W -- "large figures" --> V["Claude Sonnet 4.6<br/>chart → data points"]
+  P --> N["Arabic repair<br/>ligatures · RTL cells · digits"]
+  O --> N
+  N --> C["Chunks ~900 chars<br/>+ anchors · cross-refs"]
+  V --> C
+  N --> ST["Statistics<br/>numbers · % · KPIs<br/>labelled by Claude"]
+  V --> ST
+  C -- "passages" --> E["Cohere Embed v4"]
+  E -- "vectors" --> Q[("Qdrant<br/>filter: document_id")]
+  C -- "chunks + word boxes" --> DB[("PostgreSQL")]
+  ST --> DB
+```
+
+### Chat (per question)
+```mermaid
+sequenceDiagram
+  autonumber
+  actor U as User
+  participant UI as Next.js + PDF.js
+  participant API as FastAPI
+  participant BR as AWS Bedrock
+  participant Q as Qdrant
+  participant DB as PostgreSQL
+
+  U->>UI: Ask a question
+  UI->>API: POST /api/documents/{id}/chat
+  API->>DB: Last 6 messages (follow-up context)
+  API->>BR: Cohere Embed v4 (question)
+  API->>Q: Top 24 passages, this document only
+  API->>BR: Cohere Rerank 3.5 → best 8 sources
+  API->>BR: Claude Sonnet 4.6 (tool use)
+  BR-->>API: Statements + verbatim quotes per source
+  Note over API: Align each quote to PDF word boxes<br/>score = 0.7 × rerank + 0.3 × fidelity<br/>≤ 45% if a number is missing from the source
+  API->>BR: Cohere Rerank 3.5 (statement vs cited passage)
+  API->>DB: Save question + answer
+  API-->>UI: Statements, citations, boxes, %, cross-refs
+  UI-->>U: Yellow highlights on the PDF · High / Medium / Low
+```
 
 ## Features
 - Drag & drop multi-file upload, 100+ page documents, OCR for scanned pages (Tesseract `ara+eng`)
